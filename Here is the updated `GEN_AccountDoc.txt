@@ -1,0 +1,52 @@
+Here is the updated `GEN_AccountDocumentController` class.
+
+This version is designed to work with your new Service class architecture. It handles the `try/catch` logic (since we removed it from the Service) and parses the new response format (`message` / `response`) to send clean data back to your LWC.
+
+### `GEN_AccountDocumentController.cls`
+
+```apex
+public with sharing class GEN_AccountDocumentController {
+
+    @AuraEnabled(cacheable=true)
+    public static Map<String, Object> getSendOptions(Id accountId) {
+        try {
+            return GEN_AccountDocumentService.getInstance().getSendOptions(accountId);
+        } catch (Exception e) {
+            return new Map<String, Object>{
+                'message' => 'error',
+                'response' => 'System Error: ' + e.getMessage()
+            };
+        }
+    }
+
+    @AuraEnabled
+    public static Map<String, Object> generateDocument(String documentType, Id accountId) {
+        try {
+            return GEN_AccountDocumentService.getInstance().generateAndSavePdf(documentType, accountId);
+        } catch (Exception e) {
+            return new Map<String, Object>{
+                'message' => 'error',
+                'response' => 'System Error: ' + e.getMessage()
+            };
+        }
+    }
+
+    @AuraEnabled
+    public static Map<String, Object> sendDocumentForSignature(Id contactId, Id documentId) {
+        try {
+            return GEN_AccountDocumentService.getInstance().sendDocumentForSignature(contactId, documentId);
+        } catch (Exception e) {
+            return new Map<String, Object>{
+                'message' => 'error',
+                'response' => 'System Error: ' + e.getMessage()
+            };
+        }
+    }
+}
+```
+
+### **How this works with your LWC:**
+
+  * **Success Scenario:** The controller returns `{ message: 'success', response: (Object data) }`. Your LWC reads `data.response`.
+  * **Service Logic Error:** (e.g., "Account not found"). The Service returns `{ message: 'error', response: 'Account not found' }`. Your LWC displays `data.response` as an error toast.
+  * **System Crash:** (e.g., NullPointer or API Timeout). The Controller catches it and returns `{ message: 'error', response: 'System Error: ...' }`. Your LWC displays this safely.
