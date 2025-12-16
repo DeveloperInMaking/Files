@@ -43,10 +43,32 @@ public with sharing class GEN_AccountDocumentController {
         }
     }
 }
-```
 
-### **How this works with your LWC:**
+// 1. SET UP TEST DATA
+// We need a valid Account ID to test. This query grabs the first one it finds.
+// You can also paste a specific ID here: String accountId = '001...';
+Account testAccount = [SELECT Id, Name FROM Account LIMIT 1];
+String documentType = 'NDA'; // Options: 'NDA', 'MPRA', 'RPA', 'BillingLineItems'
 
-  * **Success Scenario:** The controller returns `{ message: 'success', response: (Object data) }`. Your LWC reads `data.response`.
-  * **Service Logic Error:** (e.g., "Account not found"). The Service returns `{ message: 'error', response: 'Account not found' }`. Your LWC displays `data.response` as an error toast.
-  * **System Crash:** (e.g., NullPointer or API Timeout). The Controller catches it and returns `{ message: 'error', response: 'System Error: ...' }`. Your LWC displays this safely.
+System.debug('--- Starting Document Generation for: ' + testAccount.Name + ' ---');
+
+// 2. CALL THE SERVICE
+// The service returns a Map<String, Object>, NOT a ContentVersion directly.
+Map<String, Object> result = GEN_AccountDocumentService.getInstance().generateAndSavePdf(documentType, testAccount.Id);
+
+// 3. HANDLE THE RESPONSE
+// We check the 'message' key to see if it worked.
+if (result.get('message') == 'success') {
+    // SUCCESS: The 'response' key holds the ContentVersion object. We must cast it.
+    ContentVersion generatedFile = (ContentVersion) result.get('response');
+    
+    System.debug('✅ SUCCESS! Document Generated.');
+    System.debug('File ID: ' + generatedFile.Id);
+    System.debug('File Title: ' + generatedFile.Title);
+} else {
+    // FAILURE: The 'response' key holds the error message string.
+    String errorMsg = (String) result.get('response');
+    
+    System.debug('❌ FAILURE. Could not generate document.');
+    System.debug('Error Message: ' + errorMsg);
+}
