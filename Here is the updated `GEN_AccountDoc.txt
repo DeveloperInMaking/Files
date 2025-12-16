@@ -1,10 +1,4 @@
-Here is the updated `GEN_AccountDocumentController` class.
 
-This version is designed to work with your new Service class architecture. It handles the `try/catch` logic (since we removed it from the Service) and parses the new response format (`message` / `response`) to send clean data back to your LWC.
-
-### `GEN_AccountDocumentController.cls`
-
-```apex
 public with sharing class GEN_AccountDocumentController {
 
     @AuraEnabled(cacheable=true)
@@ -44,31 +38,122 @@ public with sharing class GEN_AccountDocumentController {
     }
 }
 
-// 1. SET UP TEST DATA
-// We need a valid Account ID to test. This query grabs the first one it finds.
-// You can also paste a specific ID here: String accountId = '001...';
-Account testAccount = [SELECT Id, Name FROM Account LIMIT 1];
-String documentType = 'NDA'; // Options: 'NDA', 'MPRA', 'RPA', 'BillingLineItems'
 
-System.debug('--- Starting Document Generation for: ' + testAccount.Name + ' ---');
+@isTest
+private class GEN_AccountDocumentServiceTest {
 
-// 2. CALL THE SERVICE
-// The service returns a Map<String, Object>, NOT a ContentVersion directly.
-Map<String, Object> result = GEN_AccountDocumentService.getInstance().generateAndSavePdf(documentType, testAccount.Id);
+    @testSetup
+    static void setupData() {
+        // Create a test Account required for Document Generation
+        Account acc = new Account(
+            Name = 'Test Account',
+            Company_Registration_Number__c = '123456', 
+            Company_Registration_Location__c = 'London'
+        );
+        insert acc;
 
-// 3. HANDLE THE RESPONSE
-// We check the 'message' key to see if it worked.
-if (result.get('message') == 'success') {
-    // SUCCESS: The 'response' key holds the ContentVersion object. We must cast it.
-    ContentVersion generatedFile = (ContentVersion) result.get('response');
-    
-    System.debug('✅ SUCCESS! Document Generated.');
-    System.debug('File ID: ' + generatedFile.Id);
-    System.debug('File Title: ' + generatedFile.Title);
-} else {
-    // FAILURE: The 'response' key holds the error message string.
-    String errorMsg = (String) result.get('response');
-    
-    System.debug('❌ FAILURE. Could not generate document.');
-    System.debug('Error Message: ' + errorMsg);
+        // Create a test Contact required for Signature Sending
+        Contact con = new Contact(
+            FirstName = 'Test',
+            LastName = 'User',
+            Email = 'test@example.com',
+            AccountId = acc.Id
+        );
+        insert con;
+    }
+
+    @isTest
+    static void testGenerateAndSavePdf_Success() {
+        // 1. Get Test Data
+        Account acc = [SELECT Id FROM Account LIMIT 1];
+
+        // 2. Set the Mock
+        Test.setMock(HttpCalloutMock.class, new GEN_AccountDocumentServiceMock());
+
+        // 3. Run the Test
+        Test.startTest();
+        // We use 'nda' (lowercase) as we identified this is required by the API
+        Map<String, Object> result = GEN_AccountDocumentService.getInstance().generateAndSavePdf('nda', acc.Id);
+        Test.stopTest();
+
+        // 4. Minimal Assertions
+        System.assertEquals('success', result.get('message'), 'PDF Generation should return success message');
+        
+        // Verify a ContentVersion (File) was actually created
+        List<ContentVersion> files = [SELECT Id, Title FROM ContentVersion WHERE FirstPublishLocationId = :acc.Id];
+        System.assertEquals(1, files.size(), 'A file should be attached to the Account');
+    }
+
+    @isTest
+    static void testSendDocumentForSignature_Success() {
+        // 1. Get Test Data
+        Account acc = [SELECT Id FROM Account LIMIT 1];
+        Contact con = [SELECT Id FROM Contact LIMIT 1];
+
+        // 2. Create a Dummy File (ContentVersion) to send
+        // This is needed because the service queries for the "latest published version"
+        ContentVersion cv = new ContentVersion(
+            Title = 'NDA.pdf',
+            PathOnClient = 'NDA.pdf',
+            VersionData = Blob.valueOf('Fake PDF Content'),
+            FirstPublishLocationId = acc.Id
+        );
+        insert cv;
+        
+        // Fetch the Document ID (ContentDocumentId) wrapper
+        Id docId = [SELECT ContentDocumentId FROM ContentVersion WHERE Id = :cv.Id].ContentDocumentId;
+
+        // 3. Set the Mock
+        Test.setMock(HttpCalloutMock.class, new GEN_AccountDocumentServiceMock());
+
+        // 4. Run the Test
+        Test.startTest();
+        Map<String, Object> result = GEN_AccountDocumentService.getInstance().sendDocumentForSignature(con.Id, docId);
+        Test.stopTest();
+
+        // 5. Minimal Assertion
+        System.assertEquals('success', result.get('message'), 'Sending for signature should return success message');
+        
+        // Verify a Task was created (as per your service logic)
+        List<Task> tasks = [SELECT Id FROM Task WHERE WhoId = :con.Id];
+        System.assertEquals(1, tasks.size(), 'A task should be created after sending signature request');
+    }
 }
+
+
+@isTest
+public class GEN_AccountDocumentServiceMock implements HttpCalloutMock {
+    
+    public HTTPResponse respond(HTTPRequest req) {
+        HttpResponse res = new HttpResponse();
+        res.setStatusCode(200);
+        res.setHeader('Content-Type', 'application/json');
+        
+        String endpoint = req.getEndpoint();
+        
+        // 1. Handle Authentication Callout
+        if (endpoint.contains('oauth') || endpoint.contains('token')) {
+            // Returns the token structure your service expects
+            res.setBody('{"access_token": "mock_test_token_123", "token_type": "Bearer"}');
+        } 
+        // 2. Handle Document Generation Callout
+        else if (endpoint.contains('generate')) {
+            // Returns the nested JSON structure: { data: { pdf_base64: "..." } }
+            // This matches the parsing logic in your Service class
+            res.setBody('{"success": true, "data": {"pdf_base64": "JVBERi0xLg=="}}'); 
+        } 
+        // 3. Handle Signature Sending Callout
+        else if (endpoint.contains('send')) {
+            // Returns a generic success message
+            res.setBody('{"success": true, "message": "Document sent for signature"}');
+        }
+        else {
+            // Fallback for unknown endpoints
+            res.setStatusCode(404);
+            res.setBody('{"message": "Endpoint not found in mock"}');
+        }
+        
+        return res;
+    }
+}
+
