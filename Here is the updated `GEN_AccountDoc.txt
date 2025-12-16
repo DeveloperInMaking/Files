@@ -1,3 +1,35 @@
+// REPLACE THIS ID WITH YOUR ACTUAL ACCOUNT ID
+Id accId = '001QJ00000ny0c2YAA'; 
+
+System.debug('--- STARTING DEBUG ---');
+
+// 1. Test the Service Method directly
+Map<String, Object> result = GEN_AccountDocumentService.getInstance().getSendOptions(accId);
+
+System.debug('Result Message: ' + result.get('message'));
+
+if (result.get('message') == 'success') {
+    Map<String, Object> data = (Map<String, Object>) result.get('response');
+    
+    // Check Contacts
+    List<Contact> conList = (List<Contact>) data.get('contacts');
+    System.debug('✅ Contacts Found: ' + conList.size());
+    for(Contact c : conList) {
+        System.debug('   - ' + c.FirstName + ' ' + c.LastName + ' (' + c.Email + ')');
+    }
+    
+    // Check Documents
+    List<ContentDocument> docList = (List<ContentDocument>) data.get('documents');
+    System.debug('✅ Documents Found: ' + docList.size());
+    for(ContentDocument d : docList) {
+        System.debug('   - ' + d.Title + ' (ID: ' + d.Id + ')');
+    }
+} else {
+    System.debug('❌ Service Failed: ' + result);
+}
+
+System.debug('--- END DEBUG ---');
+
 
 public with sharing class GEN_AccountDocumentController {
 
@@ -156,4 +188,5 @@ public class GEN_AccountDocumentServiceMock implements HttpCalloutMock {
         return res;
     }
 }
+
 
