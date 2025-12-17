@@ -1,4 +1,42 @@
 @isTest
+public class GENAccountDocumentServiceMock implements HttpCalloutMock {
+    // This flag allows the test to force a 502 error
+    public Boolean simulateBadGateway = false;
+
+    public HTTPResponse respond(HTTPRequest req) {
+        HttpResponse res = new HttpResponse();
+        res.setStatusCode(200);
+        res.setHeader('Content-Type', 'application/json');
+        
+        String endpoint = req.getEndpoint();
+
+        // 1. Simulate 502 Bad Gateway (HTML Response)
+        if (simulateBadGateway) {
+            res.setStatusCode(502);
+            res.setBody('<html><body>502 Bad Gateway</body></html>');
+            return res;
+        }
+
+        // 2. Normal Responses
+        if (endpoint.contains('oauth') || endpoint.contains('token')) {
+            res.setBody('{"access_token": "mock_token_123", "token_type": "Bearer"}');
+        } 
+        else if (endpoint.contains('generate')) {
+            res.setBody('{"success": true, "data": {"pdf_base64": "JVBERi0xLg=="}}'); 
+        } 
+        else if (endpoint.contains('send')) {
+            res.setBody('{"success": true, "message": "Document sent for signature"}');
+        }
+        else {
+            res.setStatusCode(404);
+        }
+        return res;
+    }
+}
+
+
+
+@isTest
 private class GEN_AccountDocumentServiceTest {
 
     @testSetup
@@ -514,6 +552,7 @@ public class GEN_AccountDocumentServiceMock implements HttpCalloutMock {
         return res;
     }
 }
+
 
 
 
