@@ -1,3 +1,159 @@
+@isTest
+private class GEN_AccountDocumentControllerTest {
+
+    @testSetup
+    static void setupData() {
+        // 1. Create Test Account
+        Account acc = new Account(
+            Name = 'Test Account',
+            Company_Registration_Number__c = '12345',
+            Company_Registration_Location__c = 'London',
+            RPA_Reference__c = 'RPA-123' 
+        );
+        insert acc;
+
+        // 2. Create Test Contact
+        Contact con = new Contact(
+            FirstName = 'Test',
+            LastName = 'User',
+            Email = 'test@example.com',
+            AccountId = acc.Id
+        );
+        insert con;
+    }
+
+    // TEST 1: Get Send Options (Dropdown values)
+    @isTest
+    static void testGetSendOptions() {
+        Account acc = [SELECT Id FROM Account LIMIT 1];
+
+        Test.startTest();
+        Map<String, Object> result = GEN_AccountDocumentController.getSendOptions(acc.Id);
+        Test.stopTest();
+
+        // Verify Controller returns the map from Service
+        System.assertEquals('success', result.get('message'), 'Should return success from service');
+        
+        // Validate the response structure (contacts/documents lists)
+        Map<String, Object> responseData = (Map<String, Object>) result.get('response');
+        System.assert(responseData.containsKey('contacts'), 'Response should contain contacts list');
+        System.assert(responseData.containsKey('documents'), 'Response should contain documents list');
+    }
+
+    // TEST 2: Generate NDA Document
+    @isTest
+    static void testGenerateDocument_NDA() {
+        Account acc = [SELECT Id FROM Account LIMIT 1];
+        
+        // Set the mock to fake the API call
+        Test.setMock(HttpCalloutMock.class, new GEN_AccountDocumentControllerMock());
+
+        Test.startTest();
+        // Call the Controller method directly
+        Map<String, Object> result = GEN_AccountDocumentController.generateDocument('nda', acc.Id);
+        Test.stopTest();
+
+        System.assertEquals('success', result.get('message'), 'NDA generation should return success');
+        
+        // Verify ContentVersion was actually created via the service
+        List<ContentVersion> cv = [SELECT Id, Title FROM ContentVersion WHERE FirstPublishLocationId = :acc.Id];
+        System.assertEquals(1, cv.size(), 'One NDA file should be created');
+    }
+
+    // TEST 3: Generate RPA Document
+    @isTest
+    static void testGenerateDocument_RPA() {
+        Account acc = [SELECT Id FROM Account LIMIT 1];
+        
+        Test.setMock(HttpCalloutMock.class, new GEN_AccountDocumentControllerMock());
+
+        Test.startTest();
+        // Call with 'rpa'
+        Map<String, Object> result = GEN_AccountDocumentController.generateDocument('rpa', acc.Id);
+        Test.stopTest();
+
+        System.assertEquals('success', result.get('message'), 'RPA generation should return success');
+    }
+
+    // TEST 4: Send Document For Signature
+    @isTest
+    static void testSendDocumentForSignature() {
+        Account acc = [SELECT Id FROM Account LIMIT 1];
+        Contact con = [SELECT Id FROM Contact LIMIT 1];
+
+        // Create a dummy file to send (Required for the Service to work)
+        ContentVersion cv = new ContentVersion(
+            Title = 'Test NDA',
+            PathOnClient = 'Test_NDA.pdf',
+            VersionData = Blob.valueOf('Fake PDF Data'),
+            FirstPublishLocationId = acc.Id
+        );
+        insert cv;
+        
+        // Get ContentDocumentId
+        Id docId = [SELECT ContentDocumentId FROM ContentVersion WHERE Id = :cv.Id].ContentDocumentId;
+
+        Test.setMock(HttpCalloutMock.class, new GEN_AccountDocumentControllerMock());
+
+        Test.startTest();
+        Map<String, Object> result = GEN_AccountDocumentController.sendDocumentForSignature(con.Id, docId);
+        Test.stopTest();
+
+        System.assertEquals('success', result.get('message'), 'Signature sending should return success');
+    }
+
+    // TEST 5: Controller Exception Handling (System Error)
+    @isTest
+    static void testControllerExceptions() {
+        Test.startTest();
+        
+        // Passing null usually forces the Service or Controller logic to fail or handle it
+        // Depending on your Service validation, this returns 'error' either from Service validation or Controller catch
+        Map<String, Object> result = GEN_AccountDocumentController.generateDocument('nda', null);
+        
+        Test.stopTest();
+        
+        // We expect an error because ID is null
+        System.assertEquals('error', result.get('message'), 'Should return error for null ID');
+    }
+}
+
+
+@isTest
+public class GEN_AccountDocumentControllerMock implements HttpCalloutMock {
+    
+    public HTTPResponse respond(HTTPRequest req) {
+        HttpResponse res = new HttpResponse();
+        res.setStatusCode(200);
+        res.setHeader('Content-Type', 'application/json');
+        
+        String endpoint = req.getEndpoint();
+        
+        // 1. OAUTH (Used by both Generate and Send)
+        if (endpoint.contains('oauth') || endpoint.contains('token')) {
+            res.setBody('{"access_token": "mock_test_token_123", "token_type": "Bearer"}');
+        } 
+        // 2. GENERATE (Covers NDA and RPA)
+        else if (endpoint.contains('generate')) {
+            // Returns a dummy PDF string
+            res.setBody('{"success": true, "data": {"pdf_base64": "JVBERi0xLg=="}}'); 
+        } 
+        // 3. SEND SIGNATURE
+        else if (endpoint.contains('send')) {
+            res.setBody('{"success": true, "message": "Document sent for signature"}');
+        }
+        else {
+            res.setStatusCode(404);
+        }
+        
+        return res;
+    }
+}
+
+
+
+
+
 // 1. FETCH TEST DATA
 // We need a Contact with an email address.
 List<Contact> contacts = [SELECT Id, Name, Email FROM Contact WHERE Email != null LIMIT 1];
@@ -236,6 +392,7 @@ public class GEN_AccountDocumentServiceMock implements HttpCalloutMock {
         return res;
     }
 }
+
 
 
 
