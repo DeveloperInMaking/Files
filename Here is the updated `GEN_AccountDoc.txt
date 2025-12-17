@@ -1,3 +1,51 @@
+// 1. FETCH TEST DATA
+// We need a Contact with an email address.
+List<Contact> contacts = [SELECT Id, Name, Email FROM Contact WHERE Email != null LIMIT 1];
+if (contacts.isEmpty()) {
+    System.debug('❌ ERROR: No Contacts found with an email address. Please create one first.');
+    return;
+}
+Contact testContact = contacts[0];
+
+// We need a valid File (ContentDocument) to send.
+List<ContentVersion> files = [SELECT ContentDocumentId, Title FROM ContentVersion WHERE IsLatest = true LIMIT 1];
+if (files.isEmpty()) {
+    System.debug('❌ ERROR: No Files found in the Org. Please upload a file to an Account first.');
+    return;
+}
+Id testDocumentId = files[0].ContentDocumentId;
+
+System.debug('--- TEST DATA ---');
+System.debug('Contact: ' + testContact.Name + ' (' + testContact.Email + ')');
+System.debug('Document: ' + files[0].Title + ' (ID: ' + testDocumentId + ')');
+System.debug('-----------------');
+
+// 2. CALL THE SERVICE
+// The method requires (ContactID, ContentDocumentID)
+System.debug('>>> Calling sendDocumentForSignature...');
+Map<String, Object> result = GEN_AccountDocumentService.getInstance().sendDocumentForSignature(testContact.Id, testDocumentId);
+
+// 3. ANALYZE RESULT
+String status = (String) result.get('message');
+Object response = result.get('response');
+
+if (status == 'success') {
+    System.debug('✅ SUCCESS: Signature Request Sent!');
+    System.debug('Details: ' + response);
+} else {
+    System.debug('❌ FAILURE: Could not send signature request.');
+    System.debug('Error Message: ' + response);
+}
+
+
+
+
+
+
+
+
+
+
 // REPLACE THIS ID WITH YOUR ACTUAL ACCOUNT ID
 Id accId = '001QJ00000ny0c2YAA'; 
 
@@ -188,5 +236,6 @@ public class GEN_AccountDocumentServiceMock implements HttpCalloutMock {
         return res;
     }
 }
+
 
 
